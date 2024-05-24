@@ -2,7 +2,6 @@
 
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
 import os
-import glob
 import smbus
 import RPi.GPIO as GPIO
 import time
@@ -98,7 +97,6 @@ def adc_to_voltage(adc_value):
     voltage = (adc_value * 4.096) / 32768.0
     return voltage
 
-        
 def open_valve():
     GPIO.output(relay_pin, GPIO.HIGH)  # Set pin high to activate relay
 
@@ -147,7 +145,7 @@ def get_weather(api_key, city):
                 "description": data["weather"][0]["description"]
             }
              
-             # Check if temperature is freezing (0 degrees Celsius or below)
+            # Check if temperature is freezing (0 degrees Celsius or below)
             if temperature_celsius <= 0:
                 weather_info["temperature_status"] = "Freezing"
             else:
@@ -156,7 +154,6 @@ def get_weather(api_key, city):
             return weather_info
         else:
             return "City not found."
-    return "Error fetching weather data."
 
 def celsius_to_fahrenheit(celsius):
     return (celsius * 9/5) + 32
