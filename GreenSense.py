@@ -17,17 +17,6 @@ private_key_path = "/home/frederick-cet4925/Desktop/GreenSense - Final Project/P
 client_id = "Green_Sense_Project"
 topic = "MyTopics/SensorData"
 
-def configure_aws_client():
-    client = AWSIoTMQTTClient(client_id)
-    client.configureEndpoint(host, 8883)
-    client.configureCredentials(root_ca_path, private_key_path, certificate_path)
-    client.configureAutoReconnectBackoffTime(1, 32, 20)
-    client.configureOfflinePublishQueueing(-1)
-    client.configureDrainingFrequency(2)
-    client.configureConnectDisconnectTimeout(10)
-    client.configureMQTTOperationTimeout(5)
-    return client
-
 # Define the I2C address of the ADS1115
 ADC_ADDRESS = 0x48
 
@@ -47,6 +36,66 @@ relay_pin = 27
 
 # Set up the GPIO pin as an output
 GPIO.setup(relay_pin, GPIO.OUT)
+
+# Main function
+def main():
+    aws_client = configure_aws_client()
+    
+    try:
+        while True:
+            # Read and print sensor data
+            moisture_percentage = read_sensors()
+            # Get weather data
+            api_key = "fc9695c224199c77c0ea2bf0755bb14f"
+            city = "New York City"
+            weather_data = get_weather(api_key, city)
+            # Control the relay/valve based on moisture and weather data
+            valve_state = control_valve(moisture_percentage, weather_data)
+            # Print valve state
+            print(f"Valve is {valve_state}")
+
+            # Print weather information
+            if isinstance(weather_data, dict):
+                print(f"Weather in {weather_data['city']}:")
+                print(f"Temperature: {weather_data['temperature_celsius']}°C / {weather_data['temperature_fahrenheit']}°F")
+                print(f"Description: {weather_data['description']}")
+                
+                # Check temperature status and alert if freezing
+                if weather_data["temperature_status"] == "Freezing":
+                    print("WARNING: Freezing temperature detected!")
+                    
+            else:
+                print(weather_data)
+            
+            # Prepare message payload
+            message = {
+                "moisture_percentage": moisture_percentage,
+                "valve_state": valve_state,
+                "weather": weather_data
+            }
+            message_json = json.dumps(message)
+
+            # Publish message to AWS IoT
+            publish_to_aws(aws_client, topic, message_json)
+            
+            time.sleep(10)  # Wait before the next cycle
+
+    except KeyboardInterrupt:
+        print("Program terminated by user.")
+    finally:
+        GPIO.cleanup()
+        print("GPIO cleanup completed")
+
+def configure_aws_client():
+    client = AWSIoTMQTTClient(client_id)
+    client.configureEndpoint(host, 8883)
+    client.configureCredentials(root_ca_path, private_key_path, certificate_path)
+    client.configureAutoReconnectBackoffTime(1, 32, 20)
+    client.configureOfflinePublishQueueing(-1)
+    client.configureDrainingFrequency(2)
+    client.configureConnectDisconnectTimeout(10)
+    client.configureMQTTOperationTimeout(5)
+    return client
 
 # Function to configure the ADS1115
 def configure_ads1115(channel):
@@ -104,14 +153,19 @@ def close_valve():
     GPIO.output(relay_pin, GPIO.LOW)  # Set pin low to deactivate relay
 
 # Function to control the relay/valve based on moisture level
-def control_valve(moisture_percentage):
+def control_valve(moisture_percentage, weather_data):
+    # Check if rain is indicated in weather data
+    if "rain" in weather_data.get("description", "").lower():
+        close_valve()  # Keep the valve closed
+        return "closed (rain detected)"
+    
+    # If no rain, proceed with moisture-based control
     if moisture_percentage < 70:
         open_valve()
-        valve_state = "opened"
+        return "opened (moisture < 70%)"
     else:
         close_valve()
-        valve_state = "closed"
-    return valve_state
+        return "closed (moisture >= 70%)"
 
 # Function to read sensor data
 def read_sensors():
@@ -163,55 +217,6 @@ def publish_to_aws(client, topic, message):
     client.publish(topic, message, 1)
     client.disconnect()
 
-# Main function
-def main():
-    aws_client = configure_aws_client()
-    
-    try:
-        while True:
-            # Read and print sensor data
-            moisture_percentage = read_sensors()
-            # Control the relay/valve based on moisture
-            valve_state = control_valve(moisture_percentage)
-            # Print valve state
-            print(f"Valve is {valve_state}")
-
-            # Get weather data
-            api_key = "fc9695c224199c77c0ea2bf0755bb14f"
-            city = "New York City"
-            weather_data = get_weather(api_key, city)
-            
-            # Print weather information
-            if isinstance(weather_data, dict):
-                print(f"Weather in {weather_data['city']}:")
-                print(f"Temperature: {weather_data['temperature_celsius']}°C / {weather_data['temperature_fahrenheit']}°F")
-                print(f"Description: {weather_data['description']}")
-                
-                # Check temperature status and alert if freezing
-                if weather_data["temperature_status"] == "Freezing":
-                    print("WARNING: Freezing temperature detected!")
-                    
-            else:
-                print(weather_data)
-            
-            # Prepare message payload
-            message = {
-                "moisture_percentage": moisture_percentage,
-                "valve_state": valve_state,
-                "weather": weather_data
-            }
-            message_json = json.dumps(message)
-
-            # Publish message to AWS IoT
-            publish_to_aws(aws_client, topic, message_json)
-            
-            time.sleep(10)  # Wait before the next cycle
-
-    except KeyboardInterrupt:
-        print("Program terminated by user.")
-    finally:
-        GPIO.cleanup()
-        print("GPIO cleanup completed")
-
 if __name__ == "__main__":
     main()
+
